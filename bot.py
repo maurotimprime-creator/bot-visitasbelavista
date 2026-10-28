@@ -1,4 +1,5 @@
 import os
+import json
 import logging
 from flask import Flask, request
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
@@ -20,18 +21,23 @@ logger = logging.getLogger(__name__)
 TELEGRAM_TOKEN = "8954673009:AAFqLvqHiMufxBXEB9CrnrS_A5gk8G2LjSM"
 RENDER_URL = "https://bot-visitasbelavista-1.onrender.com"
 
-# --- CONEXÃO COM O GOOGLE SHEETS (BLINDADA CONTRA ERROS DE FORMATAÇÃO) ---
+# --- CONEXÃO COM O GOOGLE SHEETS (CORREÇÃO DA PASTA SECRETA DO RENDER) ---
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive"
 ]
 
-import json
-# Lê o arquivo secreto que criámos no Render
-with open("credenciais.json", "r", encoding="utf-8") as f:
+# O Segredo: O Render guarda os arquivos secretos nesta pasta específica.
+# Se lermos apenas "credenciais.json", ele vai ler a chave velha revogada do GitHub!
+caminho_render = "/etc/secrets/credenciais.json"
+caminho_local = "credenciais.json"
+
+# Escolhe a chave nova (no Render) ou a local (no seu PC)
+caminho_chave = caminho_render if os.path.exists(caminho_render) else caminho_local
+
+with open(caminho_chave, "r", encoding="utf-8") as f:
     creds_info = json.load(f)
 
-# O Segredo: converte os "\n" de texto em quebras de linha reais para a Google aceitar!
 if "private_key" in creds_info:
     creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n")
 
