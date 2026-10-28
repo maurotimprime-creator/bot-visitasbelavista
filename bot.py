@@ -141,7 +141,7 @@ application.add_handler(ConversationHandler(
     entry_points=[CommandHandler('start', start)],
     states={
         ESCOLHER_TIPO: [MessageHandler(filters.TEXT & ~filters.COMMAND, escolher_tipo)],
-        CLIENTE_FORA_NOME: [MessageHandler(filters.TEXT & ~filters.command, receber_nome_cliente)],
+        CLIENTE_FORA_NOME: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_nome_cliente)],
         RECEBER_GPS: [MessageHandler(filters.LOCATION, receber_gps)],
         RECEBER_FOTO: [MessageHandler(filters.PHOTO, receber_foto)],
         RECEBER_STATUS: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_status)],
@@ -165,7 +165,6 @@ def webhook():
         json_data = request.get_json(force=True)
         update = Update.de_json(json_data, application.bot)
         
-        # Cria um novo loop dedicado para esta thread processar a mensagem com segurança
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         
