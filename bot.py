@@ -140,7 +140,7 @@ application.add_handler(ConversationHandler(
     entry_points=[CommandHandler('start', start)],
     states={
         ESCOLHER_TIPO: [MessageHandler(filters.TEXT & ~filters.COMMAND, escolher_tipo)],
-        CLIENTE_FORA_NOME: [MessageHandler(filters.TEXT & ~filters.command, receber_nome_cliente)],
+        CLIENTE_FORA_NOME: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_nome_cliente)],
         RECEBER_GPS: [MessageHandler(filters.LOCATION, receber_gps)],
         RECEBER_FOTO: [MessageHandler(filters.PHOTO, receber_foto)],
         RECEBER_STATUS: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_status)],
