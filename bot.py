@@ -1,5 +1,4 @@
 import os
-import json
 import logging
 from flask import Flask, request
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
@@ -19,33 +18,16 @@ logger = logging.getLogger(__name__)
 
 # --- CONFIGURAÇÕES ---
 TELEGRAM_TOKEN = "8954673009:AAFqLvqHiMufxBXEB9CrnrS_A5gk8G2LjSM"
-# Cole aqui a URL exata que o Render te dá (ex: https://bot-visitasbelavista-1.onrender.com)
 RENDER_URL = "https://bot-visitasbelavista-1.onrender.com"
 
-# --- CONEXÃO COM O GOOGLE SHEETS (TRUQUE DO ARQUIVO TEMPORÁRIO) ---
+# --- CONEXÃO COM O GOOGLE SHEETS (USANDO ARQUIVO SECRETO) ---
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive"
 ]
 
-if "GOOGLE_CREDENTIALS_JSON" in os.environ:
-    # Pega o texto da variável do Render
-    json_str = os.environ["GOOGLE_CREDENTIALS_JSON"]
-    creds_dict = json.loads(json_str)
-    
-    # Força a correção das quebras de linha da chave privada
-    if "private_key" in creds_dict:
-        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
-        
-    # Cria um arquivo físico temporário na nuvem do Render para a biblioteca ler sem bugs
-    with open("credenciais_temp.json", "w") as f:
-        json.dump(creds_dict, f)
-        
-    CREDS = Credentials.from_service_account_file("credenciais_temp.json", scopes=SCOPES)
-else:
-    # Lê do arquivo local caso esteja a testar no computador
-    CREDS = Credentials.from_service_account_file("credenciais.json", scopes=SCOPES)
-
+# Lê diretamente do arquivo físico seguro criado no Render (Secret Files)
+CREDS = Credentials.from_service_account_file("credenciais.json", scopes=SCOPES)
 CLIENT = gspread.authorize(CREDS)
 SHEET = CLIENT.open("Controle de Visitas - Equipe").worksheet("Visitas")
 
