@@ -1,5 +1,6 @@
 import os
 import json
+import sys
 import logging
 from flask import Flask, request
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
@@ -13,57 +14,49 @@ from telegram.ext import (
 import gspread
 from google.oauth2.service_account import Credentials
 
-# Configuração de logs
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- CONFIGURAÇÕES ---
 TELEGRAM_TOKEN = "8954673009:AAFqLvqHiMufxBXEB9CrnrS_A5gk8G2LjSM"
 RENDER_URL = "https://bot-visitasbelavista-1.onrender.com"
 
-# --- CONEXÃO COM O GOOGLE SHEETS (CORREÇÃO DA PASTA SECRETA DO RENDER) ---
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive"
 ]
 
-# O Segredo: O Render guarda os arquivos secretos nesta pasta específica.
-# Se lermos apenas "credenciais.json", ele vai ler a chave velha revogada do GitHub!
-caminho_render = "/etc/secrets/credenciais.json"
-caminho_local = "credenciais.json"
+print("Verificando credenciais...")
+if "GOOGLE_CREDENTIALS_JSON" not in os.environ:
+    print("ERRO FATAL: Variável GOOGLE_CREDENTIALS_JSON não encontrada!")
+    sys.exit(1)
 
-# Escolhe a chave nova (no Render) ou a local (no seu PC)
-caminho_chave = caminho_render if os.path.exists(caminho_render) else caminho_local
-
-with open(caminho_chave, "r", encoding="utf-8") as f:
-    creds_info = json.load(f)
-
-if "private_key" in creds_info:
-    creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n")
-
-CREDS = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
-CLIENT = gspread.authorize(CREDS)
-SHEET = CLIENT.open("Controle de Visitas - Equipe").worksheet("Visitas")
+try:
+    creds_info = json.loads(os.environ["GOOGLE_CREDENTIALS_JSON"])
+    private_key = creds_info.get("private_key", "")
+    creds_info["private_key"] = private_key.replace("\\n", "\n")
+    
+    print(f"Chave carregada! ID: {creds_info.get('private_key_id', 'Desconhecido')}")
+    
+    CREDS = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
+    CLIENT = gspread.authorize(CREDS)
+    SHEET = CLIENT.open("Controle de Visitas - Equipe").worksheet("Visitas")
+    print("SUCESSO: Conectado ao Google Sheets!")
+except Exception as e:
+    print(f"ERRO DE AUTENTICAÇÃO: {e}")
+    sys.exit(1)
 
 # Estados da Conversa
 (
-    ESCOLHER_TIPO, 
-    CLIENTE_FORA_NOME, 
-    RECEBER_GPS, 
-    RECEBER_FOTO, 
-    RECEBER_STATUS, 
-    PEDIR_COMPRADOR, 
-    PEDIR_VALOR, 
-    PEDIR_OBS
+    ESCOLHER_TIPO, CLIENTE_FORA_NOME, RECEBER_GPS, RECEBER_FOTO, 
+    RECEBER_STATUS, PEDIR_COMPRADOR, PEDIR_VALOR, PEDIR_OBS
 ) = range(8)
 
 async def start(update: Update, context):
     user = update.effective_user
     context.user_data['vendedor'] = user.first_name
-    
     teclado = [['🗺️ Minha Rota', '⚡ Fora da Rota']]
     await update.message.reply_text(
-        f"Olá, {user.first_name}! Bem-vindo ao sistema de controle de visitas.\n\nEscolha uma opção abaixo:",
+        f"Olá, {user.first_name}! Escolha uma opção abaixo:",
         reply_markup=ReplyKeyboardMarkup(teclado, one_time_keyboard=True, resize_keyboard=True)
     )
     return ESCOLHER_TIPO
@@ -72,73 +65,52 @@ async def escolher_tipo(update: Update, context):
     texto = update.message.text
     if "Minha Rota" in texto:
         context.user_data['tipo'] = 'Rota'
-        await update.message.reply_text("Digite o **nome do cliente** da sua lista de hoje:", reply_markup=ReplyKeyboardRemove())
+        await update.message.reply_text("Digite o **nome do cliente** da sua lista:", reply_markup=ReplyKeyboardRemove())
         return CLIENTE_FORA_NOME
     elif "Fora da Rota" in texto:
         context.user_data['tipo'] = 'Fora da Rota'
-        await update.message.reply_text("Você está em uma visita espontânea!\n\nDigite o **nome do estabelecimento**:", reply_markup=ReplyKeyboardRemove())
+        await update.message.reply_text("Digite o **nome do estabelecimento**:", reply_markup=ReplyKeyboardRemove())
         return CLIENTE_FORA_NOME
 
 async def receber_nome_cliente(update: Update, context):
     context.user_data['cliente'] = update.message.text
-    await update.message.reply_text(
-        "Perfeito! 📍 Agora clique no clipe 📎 no Telegram, vá em **Localização** e envie sua **Localização Atual**."
-    )
+    await update.message.reply_text("Agora envie sua **Localização Atual**.")
     return RECEBER_GPS
 
 async def receber_gps(update: Update, context):
     if not update.message.location:
-        await update.message.reply_text("Por favor, envie a localização usando o botão de GPS do Telegram.")
         return RECEBER_GPS
-        
     context.user_data['lat'] = update.message.location.latitude
     context.user_data['lon'] = update.message.location.longitude
-    
-    await update.message.reply_text("Localização capturada! 📍\n\nAgora, envie a **foto da fachada** do estabelecimento (tire direto pela câmera do Telegram).")
+    await update.message.reply_text("Agora, envie a **foto da fachada**.")
     return RECEBER_FOTO
 
 async def receber_foto(update: Update, context):
     if not update.message.photo:
-        await update.message.reply_text("Por favor, envie uma foto válida do estabelecimento.")
         return RECEBER_FOTO
-        
-    foto_file = update.message.photo[-1]
-    context.user_data['foto'] = f"Foto ID: {foto_file.file_id}"
-    
-    teclado_status = [
-        ['✅ Venda Realizada', '📦 Estoque Cheio'],
-        ['🚪 Fechado / Ausente', '🔄 Retornar Outro Dia']
-    ]
-    await update.message.reply_text(
-        "Foto recebida com sucesso! 📸\n\nQual foi o **resultado / status** da visita?",
-        reply_markup=ReplyKeyboardMarkup(teclado_status, one_time_keyboard=True, resize_keyboard=True)
-    )
+    context.user_data['foto'] = f"Foto ID: {update.message.photo[-1].file_id}"
+    teclado_status = [['✅ Venda Realizada', '📦 Estoque Cheio'], ['🚪 Fechado', '🔄 Retornar']]
+    await update.message.reply_text("Qual foi o **status** da visita?", reply_markup=ReplyKeyboardMarkup(teclado_status, one_time_keyboard=True, resize_keyboard=True))
     return RECEBER_STATUS
 
 async def receber_status(update: Update, context):
     status = update.message.text
     context.user_data['status'] = status
-    
     if "Venda Realizada" in status:
-        await update.message.reply_text(
-            "💰 Ótima notícia!\n\nPor favor, digite o **nome do comprador** responsável:",
-            reply_markup=ReplyKeyboardRemove()
-        )
+        await update.message.reply_text("Digite o **nome do comprador**:", reply_markup=ReplyKeyboardRemove())
         return PEDIR_COMPRADOR
     else:
-        context.user_data['comprador'] = "-"
-        context.user_data['valor'] = "-"
-        context.user_data['obs'] = "Nenhuma observação extra"
+        context.user_data['comprador'], context.user_data['valor'], context.user_data['obs'] = "-", "-", "Nenhuma observação extra"
         return await finalizar_e_salvar(update, context)
 
 async def pedir_comprador(update: Update, context):
     context.user_data['comprador'] = update.message.text
-    await update.message.reply_text("Qual foi o **valor do pedido**? (Ex: 350.00 ou 1200):")
+    await update.message.reply_text("Qual foi o **valor do pedido**?")
     return PEDIR_VALOR
 
 async def pedir_valor(update: Update, context):
     context.user_data['valor'] = update.message.text
-    await update.message.reply_text("Deseja deixar alguma **observação** sobre o pedido ou cliente? (Se não houver, digite 'Nenhuma'):")
+    await update.message.reply_text("Deseja deixar alguma **observação**?")
     return PEDIR_OBS
 
 async def pedir_obs(update: Update, context):
@@ -147,46 +119,24 @@ async def pedir_obs(update: Update, context):
 
 async def finalizar_e_salvar(update: Update, context):
     from datetime import datetime
-    data_hora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-    vendedor = context.user_data.get('vendedor', '')
-    tipo = context.user_data.get('tipo', '')
-    cliente = context.user_data.get('cliente', '')
-    status = context.user_data.get('status', '')
-    comprador = context.user_data.get('comprador', '-')
-    valor = context.user_data.get('valor', '-')
-    lat = str(context.user_data.get('lat', ''))
-    lon = str(context.user_data.get('lon', ''))
-    foto = context.user_data.get('foto', '')
-    obs = context.user_data.get('obs', 'Nenhuma observação extra')
-    
-    SHEET.append_row([
-        data_hora,
-        vendedor,
-        tipo,
-        cliente,
-        status,
-        comprador,
-        str(valor),
-        lat,
-        lon,
-        foto,
-        obs
-    ])
-    
-    await update.message.reply_text(
-        "✅ **Visita e pedido registados com sucesso na planilha!**\n\nBom trabalho e boa próxima rota! 🚀",
-        reply_markup=ReplyKeyboardRemove()
-    )
+    try:
+        SHEET.append_row([
+            datetime.now().strftime("%d/%m/%Y %H:%M:%S"), context.user_data.get('vendedor', ''), context.user_data.get('tipo', ''),
+            context.user_data.get('cliente', ''), context.user_data.get('status', ''), context.user_data.get('comprador', '-'),
+            str(context.user_data.get('valor', '-')), str(context.user_data.get('lat', '')), str(context.user_data.get('lon', '')),
+            context.user_data.get('foto', ''), context.user_data.get('obs', 'Nenhuma observação extra')
+        ])
+        await update.message.reply_text("✅ **Visita registada com sucesso!**", reply_markup=ReplyKeyboardRemove())
+    except Exception as e:
+        await update.message.reply_text(f"❌ Erro ao salvar: {e}")
     return ConversationHandler.END
 
 async def cancelar(update: Update, context):
     await update.message.reply_text("Operação cancelada.", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
-# Configuração do Bot e Handlers
 application = Application.builder().token(TELEGRAM_TOKEN).build()
-
-conv_handler = ConversationHandler(
+application.add_handler(ConversationHandler(
     entry_points=[CommandHandler('start', start)],
     states={
         ESCOLHER_TIPO: [MessageHandler(filters.TEXT & ~filters.COMMAND, escolher_tipo)],
@@ -199,27 +149,21 @@ conv_handler = ConversationHandler(
         PEDIR_OBS: [MessageHandler(filters.TEXT & ~filters.COMMAND, pedir_obs)],
     },
     fallbacks=[CommandHandler('cancel', cancelar)]
-)
+))
 
-application.add_handler(conv_handler)
-
-# Servidor Flask para manter o Render ativo
 app = Flask(__name__)
 
 @app.route('/')
 def index():
-    return "Bot Online e Operacional!"
+    return "Bot Online!"
 
 @app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
 def webhook():
     import asyncio
-    json_update = request.get_json(force=True)
-    update = Update.de_json(json_update, application.bot)
-    
+    update = Update.de_json(request.get_json(force=True), application.bot)
     async def process():
         await application.initialize()
         await application.process_update(update)
-    
     asyncio.run(process())
     return 'ok'
 
@@ -228,8 +172,5 @@ if __name__ == '__main__':
     async def setup_webhook():
         await application.initialize()
         await application.bot.set_webhook(url=f"{RENDER_URL}/{TELEGRAM_TOKEN}")
-    
     asyncio.run(setup_webhook())
-    
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
