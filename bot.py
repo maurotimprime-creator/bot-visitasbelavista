@@ -2,6 +2,7 @@ import os
 import json
 import sys
 import logging
+import asyncio
 from flask import Flask, request
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
@@ -140,7 +141,7 @@ application.add_handler(ConversationHandler(
     entry_points=[CommandHandler('start', start)],
     states={
         ESCOLHER_TIPO: [MessageHandler(filters.TEXT & ~filters.COMMAND, escolher_tipo)],
-        CLIENTE_FORA_NOME: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_nome_cliente)],
+        CLIENTE_FORA_NOME: [MessageHandler(filters.TEXT & ~filters.command, receber_nome_cliente)],
         RECEBER_GPS: [MessageHandler(filters.LOCATION, receber_gps)],
         RECEBER_FOTO: [MessageHandler(filters.PHOTO, receber_foto)],
         RECEBER_STATUS: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_status)],
@@ -151,7 +152,7 @@ application.add_handler(ConversationHandler(
     fallbacks=[CommandHandler('cancel', cancelar)]
 ))
 
-# Servidor Flask para manter o Render ativo e receber Webhooks
+# Servidor Flask e gestão de eventos segura para Webhooks
 app = Flask(__name__)
 
 @app.route('/')
@@ -160,33 +161,35 @@ def index():
 
 @app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
 def webhook():
-    import asyncio
-    json_data = request.get_json(force=True)
-    update = Update.de_json(json_data, application.bot)
-    
-    async def process_update():
-        await application.initialize()
-        await application.process_update(update)
-
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            asyncio.run_coroutine_threadsafe(process_update(), loop)
-        else:
-            asyncio.run(process_update())
+        json_data = request.get_json(force=True)
+        update = Update.de_json(json_data, application.bot)
+        
+        # Cria um novo loop dedicado para esta thread processar a mensagem com segurança
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        async def process():
+            await application.initialize()
+            await application.process_update(update)
+            
+        loop.run_until_complete(process())
+        loop.close()
     except Exception as e:
         logger.error(f"Erro ao processar webhook: {e}")
         
     return 'ok'
 
 if __name__ == '__main__':
-    import asyncio
     async def setup_webhook():
         await application.initialize()
         await application.bot.set_webhook(url=f"{RENDER_URL}/{TELEGRAM_TOKEN}")
     
     try:
-        asyncio.run(setup_webhook())
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(setup_webhook())
+        loop.close()
     except Exception as e:
         logger.error(f"Erro ao configurar webhook: {e}")
 
