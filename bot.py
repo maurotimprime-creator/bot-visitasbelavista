@@ -72,23 +72,33 @@ async def escolher_tipo(update: Update, context):
         context.user_data['tipo'] = 'Fora da Rota'
         await update.message.reply_text("Digite o **nome do estabelecimento**:", reply_markup=ReplyKeyboardRemove())
         return CLIENTE_FORA_NOME
+    return ESCOLHER_TIPO
 
 async def receber_nome_cliente(update: Update, context):
-    context.user_data['cliente'] = update.message.text
-    await update.message.reply_text("Agora envie sua **Localização Atual**.")
+    texto = update.message.text
+    if texto.startswith('/'):
+        return CLIENTE_FORA_NOME # Ignora comandos e continua à espera do nome
+    
+    context.user_data['cliente'] = texto
+    await update.message.reply_text("Perfeito! 📍 Agora clique no clipe 📎 no Telegram, vá em **Localização** e envie sua **Localização Atual**.")
     return RECEBER_GPS
 
 async def receber_gps(update: Update, context):
     if not update.message.location:
+        await update.message.reply_text("Por favor, envie a localização usando o botão de GPS do Telegram (clipe 📎).")
         return RECEBER_GPS
+        
     context.user_data['lat'] = update.message.location.latitude
     context.user_data['lon'] = update.message.location.longitude
-    await update.message.reply_text("Agora, envie a **foto da fachada**.")
+    
+    await update.message.reply_text("Localização capturada! 📍\n\nAgora, envie a **foto da fachada** do estabelecimento.")
     return RECEBER_FOTO
 
 async def receber_foto(update: Update, context):
     if not update.message.photo:
+        await update.message.reply_text("Por favor, envie uma foto válida.")
         return RECEBER_FOTO
+        
     context.user_data['foto'] = f"Foto ID: {update.message.photo[-1].file_id}"
     teclado_status = [['✅ Venda Realizada', '📦 Estoque Cheio'], ['🚪 Fechado', '🔄 Retornar']]
     await update.message.reply_text("Qual foi o **status** da visita?", reply_markup=ReplyKeyboardMarkup(teclado_status, one_time_keyboard=True, resize_keyboard=True))
@@ -140,19 +150,18 @@ application = Application.builder().token(TELEGRAM_TOKEN).build()
 application.add_handler(ConversationHandler(
     entry_points=[CommandHandler('start', start)],
     states={
-        ESCOLHER_TIPO: [MessageHandler(filters.TEXT & ~filters.COMMAND, escolher_tipo)],
-        CLIENTE_FORA_NOME: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_nome_cliente)],
-        RECEBER_GPS: [MessageHandler(filters.LOCATION, receber_gps)],
-        RECEBER_FOTO: [MessageHandler(filters.PHOTO, receber_foto)],
-        RECEBER_STATUS: [MessageHandler(filters.TEXT & ~filters.COMMAND, receber_status)],
-        PEDIR_COMPRADOR: [MessageHandler(filters.TEXT & ~filters.COMMAND, pedir_comprador)],
-        PEDIR_VALOR: [MessageHandler(filters.TEXT & ~filters.COMMAND, pedir_valor)],
-        PEDIR_OBS: [MessageHandler(filters.TEXT & ~filters.COMMAND, pedir_obs)],
+        ESCOLHER_TIPO: [MessageHandler(filters.TEXT, escolher_tipo)],
+        CLIENTE_FORA_NOME: [MessageHandler(filters.TEXT, receber_nome_cliente)],
+        RECEBER_GPS: [MessageHandler(filters.LOCATION | filters.TEXT, receber_gps)],
+        RECEBER_FOTO: [MessageHandler(filters.PHOTO | filters.TEXT, receber_foto)],
+        RECEBER_STATUS: [MessageHandler(filters.TEXT, receber_status)],
+        PEDIR_COMPRADOR: [MessageHandler(filters.TEXT, pedir_comprador)],
+        PEDIR_VALOR: [MessageHandler(filters.TEXT, pedir_valor)],
+        PEDIR_OBS: [MessageHandler(filters.TEXT, pedir_obs)],
     },
     fallbacks=[CommandHandler('cancel', cancelar)]
 ))
 
-# Servidor Flask e gestão de eventos segura para Webhooks
 app = Flask(__name__)
 
 @app.route('/')
