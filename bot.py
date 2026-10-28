@@ -20,14 +20,22 @@ logger = logging.getLogger(__name__)
 TELEGRAM_TOKEN = "8954673009:AAFqLvqHiMufxBXEB9CrnrS_A5gk8G2LjSM"
 RENDER_URL = "https://bot-visitasbelavista-1.onrender.com"
 
-# --- CONEXÃO COM O GOOGLE SHEETS (USANDO ARQUIVO SECRETO) ---
+# --- CONEXÃO COM O GOOGLE SHEETS (BLINDADA CONTRA ERROS DE FORMATAÇÃO) ---
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive"
 ]
 
-# Lê diretamente do arquivo físico seguro criado no Render (Secret Files)
-CREDS = Credentials.from_service_account_file("credenciais.json", scopes=SCOPES)
+import json
+# Lê o arquivo secreto que criámos no Render
+with open("credenciais.json", "r", encoding="utf-8") as f:
+    creds_info = json.load(f)
+
+# O Segredo: converte os "\n" de texto em quebras de linha reais para a Google aceitar!
+if "private_key" in creds_info:
+    creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n")
+
+CREDS = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
 CLIENT = gspread.authorize(CREDS)
 SHEET = CLIENT.open("Controle de Visitas - Equipe").worksheet("Visitas")
 
